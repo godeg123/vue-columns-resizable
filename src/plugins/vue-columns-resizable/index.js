@@ -1,86 +1,121 @@
-export default {
-  install(Vue) {
+export default ({ Vue }) => {
     Vue.directive('columns-resizable', {
-      inserted(el) {
-        const nodeName = el.nodeName;
-        if (['TABLE', 'THEAD'].indexOf(nodeName) < 0) return;
+        inserted (el, binding) {
+            if (el.nodeName !== 'TABLE') { return console.error('This directive is only valid on a table!'); }
 
-        const table = nodeName === 'TABLE' ? el : el.parentElement;
-        const thead = table.querySelector('thead');
-        const ths = thead.querySelectorAll('th');
-        const barHeight = nodeName === 'TABLE' ? table.offsetHeight : thead.offsetHeight;
+            const opt = binding.value || {};
+            const table = el;
+            const thead = table.querySelector('thead');
+            const ths = thead.querySelectorAll('th');
+            const calcTableWidth = () => {
+                let tableWidth = 0;
+                let width = 0;
 
-        const resizeContainer = document.createElement('div');
-        table.style.position = 'relative';
-        resizeContainer.style.position = 'relative';
-        resizeContainer.style.width = table.offsetWidth + 'px';
-        resizeContainer.className = "vue-columns-resizable";
-        table.parentElement.insertBefore(resizeContainer, table);
+                ths.forEach((th) => {
+                    if (th.style.width) {
+                        width = Number(parseInt(th.style.width));
+                    } else {
+                        width = th.offsetWidth;
+                    }
+                    tableWidth += width;
+                }, 0);
 
-        let moving = false;
-        let movingIndex = 0;
+                return tableWidth;
+            };
+            const applyTableWidth = () => {
+                if (opt.fixedWidthTable) {
+                    table.style.width = calcTableWidth();
+                    table.style.maxWidth = 'none';
+                } else if (!table.style.width) {
+                    table.style.width = '100%';
+                    table.style.maxWidth = '100%';
+                }
+            };
+            const handleResize = e => {
+                if (opt.resizable === false) return;
 
-        ths.forEach((th, index) => {
-          th.style.width = th.offsetWidth + 'px';
+                if (!opt.fixedWidthTable) {
+                    activeTh.style.width = parseInt(activeTh.style.width) + e.movementX + 'px';
+                    neighbourghTh.style.width = parseInt(neighbourghTh.style.width) - e.movementX + 'px';
+                } else {
+                    activeTh.style.width = parseInt(activeTh.style.width) + e.movementX + 'px';
+                    table.style.width = parseInt(table.style.width) + e.movementX + 'px';
+                }
+            };
 
-          if (index + 1 >= ths.length) return;
+            let activeTh = null; // the th being resized
+            let neighbourghTh = null; // the next except when the last column is being resized in that case it is the previous
+            let resizing = false; // a resize started needed because we can not detect event handler was attached or not
+            table.style.position = 'relative';
 
-          const nextTh = ths[index + 1];
-          const bar = document.createElement('div');
+            applyTableWidth();
 
-          bar.style.position = 'absolute';
-          bar.style.left = nextTh.offsetLeft - 4 + 'px';
-          bar.style.top = 0;
-          bar.style.height = barHeight + 'px';
-          bar.style.width = '8px';
-          bar.style.cursor = 'col-resize';
-          bar.style.zIndex = 1;
-          bar.className = 'columns-resize-bar';
+            ths.forEach((th, index) => {
+                // initilise the width if th does not already have it
+                if (!th.style.width) {
+                    th.style.width = th.offsetWidth + 'px';
+                }
 
-          bar.addEventListener('mousedown', () => {
-            moving = true;
-            movingIndex = index;
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-          });
+                th.originalWidth = th.style.width;
+                const bar = document.createElement('div');
 
-          resizeContainer.appendChild(bar);
-        });
+                bar.style.position = 'absolute';
+                bar.style.right = 0;
+                bar.style.top = 0;
+                bar.style.bottom = 0;
+                bar.style.cursor = 'col-resize';
 
-        const bars = resizeContainer.querySelectorAll('.columns-resize-bar');
+                // customisable options
+                bar.style.width = opt.handleWidth || '8px';
+                bar.style.zIndex = opt.zIndex || 1;
+                bar.className = opt.handleClass || 'columns-resize-bar';
 
-        document.addEventListener('mouseup', () => {
-          if (!moving) return;
+                bar.addEventListener('mousedown', (e) => {
+                    // element with a fixedsize attribute will be ignored
+                    if (e.target.parentElement.getAttribute('fixedsize')) {
+                        return;
+                    }
+                    resizing = true;
+                    document.body.addEventListener('mousemove', handleResize);
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
 
-          moving = false;
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
+                    activeTh = e.target.parentElement;
+                    neighbourghTh = activeTh.nextElementSibling;
+                    if (!neighbourghTh) {
+                        neighbourghTh = activeTh.previousElementSibling;
+                    }
 
-          bars.forEach((bar, index) => {
-            const th = ths[index];
-            const nextTh = ths[index + 1];
-            th.style.width = th.offsetWidth + 'px';
-            bar.style.left = nextTh.offsetLeft - 4 + 'px';
-          });
-        });
+                    // calculate table size if the table width is fixed
+                    if (!opt.fixedWidthTable) {
+                        let tableWidth = ths.reduce((a, th) => {
+                            return a + Number(parseInt(th.style.width));
+                        }, 0);
+                        table.style.width = tableWidth + 'px';
+                    }
+                });
 
-        const cutPx = str => +str.replace('px', '');
+                th.appendChild(bar);
+            });
 
-        const handleResize = e => {
-          if (moving) {
-            const th = ths[movingIndex];
-            const nextTh = ths[movingIndex + 1];
-            const bar = bars[movingIndex];
-            th.style.width = cutPx(th.style.width) + e.movementX + 'px';
-            nextTh.style.width = cutPx(nextTh.style.width) - e.movementX + 'px';
-            bar.style.left = nextTh.offsetLeft - 4 + e.movementX + 'px';
-          }
-        };
+            document.addEventListener('mouseup', () => {
+                if (!resizing) return;
+                resizing = false;
+                document.body.removeEventListener('mousemove', handleResize);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                if (typeof opt.afterResize === 'function') {
+                    opt.afterResize(ths);
+                }
+            });
 
-        resizeContainer.addEventListener('mousemove', handleResize);
-        table.addEventListener('mousemove', handleResize);
-      },
+            // resets the column sizes
+            el.$resetColumnSizes = () => {
+                ths.forEach((th) => {
+                    th.style.width = th.originalWidth;
+                }, 0);
+                applyTableWidth();
+            };
+        }
     });
-
-  },
 };
